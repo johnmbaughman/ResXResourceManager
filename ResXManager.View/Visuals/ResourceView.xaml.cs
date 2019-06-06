@@ -63,7 +63,18 @@
             }
         }
 
-        private void ResourceViewModel_ClearFiltersRequest(object sender, EventArgs e) => DataGrid.GetFilter().Clear();
+        private void ResourceViewModel_ClearFiltersRequest(object sender, [NotNull] ResourceTableEntryEventArgs e)
+        {
+            var filter = DataGrid.Items.Filter;
+
+            if (filter == null)
+                return;
+
+            if (filter(e.Entry))
+                return;
+
+            DataGrid.GetFilter().Clear();
+        }
 
         private void ResourceManager_Loaded([NotNull] object sender, [NotNull] EventArgs e)
         {
@@ -139,7 +150,6 @@
 
         private void ExportExcelCommandConverter_Executing([NotNull] object sender, [NotNull] ConfirmedCommandEventArgs e)
         {
-
             var dlg = new SaveFileDialog
             {
                 AddExtension = true,
@@ -147,7 +157,7 @@
                 DefaultExt = ".xlsx",
                 Filter = "Excel Worksheets|*.xlsx|All Files|*.*",
                 FilterIndex = 0,
-                FileName = DateTime.Today.ToString("yyyy_MM_dd", CultureInfo.InvariantCulture)
+                FileName = DateTime.Now.ToString("yyyy_MM_dd_HH_mm", CultureInfo.InvariantCulture)
             };
 
             if (_configuration.ExcelExportMode == ExcelExportMode.Text)
@@ -224,11 +234,13 @@
                 Scope = scope;
             }
 
+            [CanBeNull]
             public IResourceScope Scope
             {
                 get;
             }
 
+            [CanBeNull]
             public string FileName
             {
                 get;

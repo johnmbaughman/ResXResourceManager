@@ -1,11 +1,10 @@
-﻿namespace tomenglertde.ResXManager.Translators
+﻿    namespace tomenglertde.ResXManager.Translators
 {
     using System;
     using System.Collections.Generic;
     using System.ComponentModel.Composition;
     using System.Diagnostics;
     using System.Diagnostics.CodeAnalysis;
-    using System.Diagnostics.Contracts;
     using System.Globalization;
     using System.IO;
     using System.Linq;
@@ -15,8 +14,6 @@
     using System.Threading.Tasks;
 
     using JetBrains.Annotations;
-
-    using Newtonsoft.Json;
 
     using tomenglertde.ResXManager.Infrastructure;
 
@@ -36,11 +33,20 @@
         {
         }
 
-        private string APIKey => Credentials[0].Value;
-
-        public override void Translate(ITranslationSession translationSession)
+        [DataMember(Name = "ApiKey")]
+        [CanBeNull]
+        public string SerializedApiKey
         {
-            if (string.IsNullOrEmpty(APIKey))
+            get => SaveCredentials ? Credentials[0].Value : null;
+            set => Credentials[0].Value = value;
+        }
+
+        [CanBeNull]
+        private string ApiKey => Credentials[0].Value;
+
+        public override async void Translate(ITranslationSession translationSession)
+        {
+            if (string.IsNullOrEmpty(ApiKey))
             {
                 translationSession.AddMessage("Google Translator requires API Key.");
                 return;
@@ -50,8 +56,6 @@
             {
                 if (translationSession.IsCanceled)
                     break;
-
-                Contract.Assume(languageGroup != null);
 
                 var targetCulture = languageGroup.Key.Culture ?? translationSession.NeutralResourcesLanguage;
 
@@ -68,6 +72,7 @@
                         var parameters = new List<string>(30);
                         foreach (var item in sourceItems)
                         {
+                            // ReSharper disable once PossibleNullReferenceException
                             parameters.AddRange(new[] { "q", RemoveKeyboardShortcutIndicators(item.Source) });
                         }
 
@@ -76,29 +81,30 @@
                             "format", "text",
                             "source", GoogleLangCode(translationSession.SourceLanguage),
                             "model", "base",
-                            "key", APIKey });
+                            "key", ApiKey });
 
-                        // Call the Google API
-                        var responseTask = GetHttpResponse("https://translation.googleapis.com/language/translate/v2", null, parameters, JsonConverter<TranslationRootObject>);
-
-                        // Handle successful run
-                        responseTask.ContinueWith(t =>
+                        try
                         {
-                            translationSession.Dispatcher.BeginInvoke(() =>
+
+                            // Call the Google API
+                            // ReSharper disable once AssignNullToNotNullAttribute
+                            var response = await GetHttpResponse("https://translation.googleapis.com/language/translate/v2", null, parameters, JsonConverter<TranslationRootObject>).ConfigureAwait(false);
+
+                            await translationSession.Dispatcher.BeginInvoke(() =>
                             {
-                                foreach (var tuple in sourceItems.Zip(t.Result.Data.Translations,
+                                foreach (var tuple in sourceItems.Zip(response.Data.Translations,
                                     (a, b) => new Tuple<ITranslationItem, string>(a, b.TranslatedText)))
                                 {
-                                    Contract.Assume(tuple != null);
-                                    Contract.Assume(tuple.Item1 != null);
-                                    Contract.Assume(tuple.Item2 != null);
                                     tuple.Item1.Results.Add(new TranslationMatch(this, tuple.Item2, 1.0));
                                 }
                             });
-                        }, TaskContinuationOptions.OnlyOnRanToCompletion);
 
-                        // Handle exception in run
-                        responseTask.ContinueWith(t => { translationSession.AddMessage(DisplayName + ": " + t.Exception?.InnerException?.Message); loop = false; }, TaskContinuationOptions.OnlyOnFaulted);
+                        }
+                        catch (Exception ex)
+                        {
+                            translationSession.AddMessage(DisplayName + ": " + ex.InnerException?.Message);
+                            loop = false;
+                        }
                     }
                 }
             }
@@ -130,13 +136,14 @@
                 }
 
                 Debug.WriteLine("Google URL: " + url);
-                using (var stream = await c.GetStreamAsync(url))
+                using (var stream = await c.GetStreamAsync(new Uri(url)).ConfigureAwait(false))
                 {
                     return conv(stream);
                 }
             }
         }
 
+        [CanBeNull]
         private static T JsonConverter<T>([NotNull] Stream stream)
         {
             using (var reader = new StreamReader(stream, Encoding.UTF8))

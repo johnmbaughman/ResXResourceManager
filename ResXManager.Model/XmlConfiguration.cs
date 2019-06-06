@@ -1,9 +1,6 @@
 ﻿namespace tomenglertde.ResXManager.Model
 {
     using System;
-    using System.Diagnostics;
-    using System.Diagnostics.CodeAnalysis;
-    using System.Diagnostics.Contracts;
     using System.IO;
     using System.Linq;
     using System.Xml.Linq;
@@ -53,7 +50,6 @@
         public XmlConfiguration([NotNull] ITracer tracer)
             : this(tracer, null)
         {
-            Contract.Requires(tracer != null);
         }
 
         /// <summary>
@@ -63,8 +59,6 @@
         /// <param name="reader">The reader providing the XML stream.</param>
         public XmlConfiguration([NotNull] ITracer tracer, [CanBeNull] TextReader reader)
         {
-            Contract.Requires(tracer != null);
-
             XElement root = null;
             XNamespace @namespace = null;
             XDocument document = null;
@@ -87,7 +81,7 @@
                 }
             }
 
-            if ((@namespace == null) || !DefaultNamespace.Equals(@namespace.NamespaceName))
+            if ((@namespace == null) || !DefaultNamespace.Equals(@namespace.NamespaceName, StringComparison.Ordinal))
             {
                 @namespace = XNamespace.Get(DefaultNamespace);
                 root = new XElement(XName.Get("Values", @namespace.NamespaceName));
@@ -111,11 +105,9 @@
         [CanBeNull]
         public string GetValue([NotNull] string key, [CanBeNull] string defaultValue)
         {
-            Contract.Requires(key != null);
-
             return _root.DescendantsAndSelf(_valueName)
                 .Select(node => new { Node = node, KeyAttribute = node.Attribute(_keyName) })
-                .Where(item => (item.KeyAttribute != null) && key.Equals(item.KeyAttribute.Value))
+                .Where(item => (item.KeyAttribute != null) && key.Equals(item.KeyAttribute.Value, StringComparison.Ordinal))
                 .Select(item => item.Node.FirstNode as XText)
                 .Where(node => node != null)
                 .Select(node => node.Value)
@@ -129,10 +121,8 @@
         /// <param name="value">The value. If value is null, the node will be deleted from the xml stream.</param>
         public void SetValue([NotNull] string key, [CanBeNull] string value)
         {
-            Contract.Requires(key != null);
-
             var valueNode = _root.Descendants(_valueName)
-                .FirstOrDefault(node => string.Equals(key, node.Attribute(_keyName).Value));
+                .FirstOrDefault(node => string.Equals(key, node.Attribute(_keyName)?.Value, StringComparison.Ordinal));
 
             if (value == null)
             {
@@ -165,8 +155,6 @@
         /// <param name="writer">The writer.</param>
         public void Save([NotNull] TextWriter writer)
         {
-            Contract.Requires(writer != null);
-
             _document.Save(writer);
         }
 
@@ -176,8 +164,6 @@
         /// <param name="fileName">Name of the file.</param>
         public void Save([NotNull] string fileName)
         {
-            Contract.Requires(!string.IsNullOrEmpty(fileName));
-
             using (var writer = new StreamWriter(fileName))
             {
                 Save(writer);
@@ -187,17 +173,6 @@
         public override string ToString()
         {
             return _document.ToString();
-        }
-
-        [ContractInvariantMethod]
-        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Required for code contracts.")]
-        [Conditional("CONTRACTS_FULL")]
-        private void ObjectInvariant()
-        {
-            Contract.Invariant(_document != null);
-            Contract.Invariant(_root != null);
-            Contract.Invariant(_keyName != null);
-            Contract.Invariant(_valueName != null);
         }
     }
 }

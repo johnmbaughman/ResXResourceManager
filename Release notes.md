@@ -1,4 +1,44 @@
-﻿1.25
+﻿1.35
+- #209: Show proper error message when a language is not defined.
+- #224: Error when opening from solution explorer when filter was previously applied.
+
+1.34
+- #204: Delete messages must not refer to rows, could be also columns
+- #202: Trim invalid characters from translations.
+
+1.33
+- #200: fix conflicting assembly loading.
+
+1.32
+- #199: Sometimes no desigern code is generated.
+
+1.31
+- #196: Finalize VS2019 support, drop VS2013 support (no longer compatible)
+
+1.30
+- #189: fix typo in datetime pattern
+- #194: Exceeding Excels's limits should abort when calling ExportExcell
+- #196: Support for Visual Studio 2019
+- #193: reduce noise of messages in the output window
+
+1.29
+- Fix #192: Do not reset filter if requested entry already matches.
+- Fix #189: Default Excel-export file name contains time stamp
+
+1.28
+- Fix #188: Revert extra null check
+- Fix #186: change default configuration for ConfirmAddLanguageFile to false.
+
+1.27
+- Fix #184: double-check command parameters
+- Fix #185: broken translator url
+
+1.26
+- Fix #180: Improve Copy/Paste UX.
+- Fix #181: Revert skipping small words in the key
+- Fix #182: Improve UX when using the entity FilterText: Auto-escape backslashes if Regex is not valid.
+
+1.25
 - Fix #166: Option for automatic removing of empty entries
 - Fix #171: Bad caret visualization on Move to resource utility with Visual Studio dark theme
 - Fix #172: Support pseudo-locales

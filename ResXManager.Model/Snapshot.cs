@@ -2,13 +2,10 @@
 {
     using System;
     using System.Collections.Generic;
-    using System.Diagnostics.Contracts;
     using System.Linq;
     using System.Runtime.Serialization;
 
     using JetBrains.Annotations;
-
-    using Newtonsoft.Json;
 
     using tomenglertde.ResXManager.Infrastructure;
 
@@ -19,9 +16,6 @@
         [NotNull]
         public static string CreateSnapshot([NotNull][ItemNotNull] this ICollection<ResourceEntity> resourceEntities)
         {
-            Contract.Requires(resourceEntities != null);
-            Contract.Ensures(Contract.Result<string>() != null);
-
             var entitySnapshots = resourceEntities.Select(
                 entity => new EntitySnapshot
                 {
@@ -46,39 +40,32 @@
 
         public static void LoadSnapshot([NotNull][ItemNotNull] this ICollection<ResourceEntity> resourceEntities, [CanBeNull] string snapshot)
         {
-            Contract.Requires(resourceEntities != null);
-
             if (string.IsNullOrEmpty(snapshot))
             {
                 UnloadSnapshot(resourceEntities);
             }
             else
             {
-                var entitySnapshots = JsonConvert.DeserializeObject<ICollection<EntitySnapshot>>(snapshot) ?? new EntitySnapshot[0];
+                var entitySnapshots = JsonConvert.DeserializeObject<ICollection<EntitySnapshot>>(snapshot) ?? Array.Empty<EntitySnapshot>();
                 resourceEntities.Load(entitySnapshots);
             }
         }
 
         private static void UnloadSnapshot([NotNull][ItemNotNull] IEnumerable<ResourceEntity> resourceEntities)
         {
-            Contract.Requires(resourceEntities != null);
-
             resourceEntities.SelectMany(entitiy => entitiy.Entries)
                 .ForEach(entry => entry.Snapshot = null);
         }
 
         private static void Load([NotNull][ItemNotNull] this IEnumerable<ResourceEntity> resourceEntities, [NotNull][ItemNotNull] IEnumerable<EntitySnapshot> entitySnapshots)
         {
-            Contract.Requires(resourceEntities != null);
-            Contract.Requires(entitySnapshots != null);
-
             resourceEntities.ForEach(entity =>
             {
-                var entrySnapshots = entitySnapshots.Where(snapshot => Equals(entity, snapshot)).Select(s => s.Entries).FirstOrDefault() ?? new EntrySnapshot[0];
+                var entrySnapshots = entitySnapshots.Where(snapshot => Equals(entity, snapshot)).Select(s => s.Entries).FirstOrDefault() ?? Array.Empty<EntrySnapshot>();
 
                 entity.Entries.ForEach(entry =>
                 {
-                    var data = entrySnapshots.Where(s => string.Equals(entry.Key, s.Key)).Select(s => s.Data).FirstOrDefault() ?? new DataSnapshot[0];
+                    var data = entrySnapshots.Where(s => string.Equals(entry.Key, s.Key, StringComparison.Ordinal)).Select(s => s.Data).FirstOrDefault() ?? Array.Empty<DataSnapshot>();
 
                     entry.Snapshot = data.ToDictionary(item => new CultureKey(item.Language), item => new ResourceData { Text = item.Text, Comment = item.Comment });
                 });
@@ -87,9 +74,6 @@
 
         private static bool Equals([NotNull] ResourceEntity entity, [NotNull] EntitySnapshot snapshot)
         {
-            Contract.Requires(entity != null);
-            Contract.Requires(snapshot != null);
-
             return string.Equals(entity.ProjectName, snapshot.ProjectName, StringComparison.OrdinalIgnoreCase)
                    && string.Equals(entity.UniqueName, snapshot.UniqueName, StringComparison.OrdinalIgnoreCase);
         }

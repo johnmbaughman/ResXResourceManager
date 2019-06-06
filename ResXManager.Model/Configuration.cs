@@ -3,7 +3,6 @@
     using System;
     using System.ComponentModel;
     using System.Diagnostics.CodeAnalysis;
-    using System.Diagnostics.Contracts;
     using System.Globalization;
 
     using JetBrains.Annotations;
@@ -33,13 +32,12 @@
         DuplicateKeyHandling DuplicateKeyHandling { get; }
     }
 
-    [SuppressMessage("Microsoft.Naming", "CA1724:TypeNamesShouldNotMatchNamespaces", Justification = "Works fine with this")]
+    [SuppressMessage("ReSharper", "NotNullMemberIsNotInitialized", Justification = "value provided by AutoProperties")]
     public abstract class Configuration : ConfigurationBase, IConfiguration
     {
         protected Configuration([NotNull] ITracer tracer)
             : base(tracer)
         {
-            Contract.Requires(tracer != null);
         }
 
         [NotNull, UsedImplicitly]
@@ -66,7 +64,7 @@
 
         public StringComparison? EffectiveResXSortingComparison => SortFileContentOnSave ? ResXSortingComparison : (StringComparison?)null;
 
-        [DefaultValue(true)]
+        [DefaultValue(false)]
         public bool ConfirmAddLanguageFile { get; set; }
 
         [DefaultValue(false)]

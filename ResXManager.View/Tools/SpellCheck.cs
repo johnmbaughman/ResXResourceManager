@@ -1,7 +1,6 @@
 ﻿namespace tomenglertde.ResXManager.View.Tools
 {
     using System;
-    using System.Diagnostics.Contracts;
     using System.Windows;
     using System.Windows.Controls.Primitives;
     using System.Windows.Threading;
@@ -20,17 +19,15 @@
         private static bool _exceptionTraced;
 
         [AttachedPropertyBrowsableForType(typeof(TextBoxBase))]
-        public static bool GetIsEnabled([NotNull] TextBoxBase obj)
+        public static bool GetIsEnabled([NotNull] TextBoxBase item)
         {
-            Contract.Requires(obj != null);
-            return obj.GetValue<bool>(IsEnabledProperty);
+            return item.GetValue<bool>(IsEnabledProperty);
         }
-        public static void SetIsEnabled([NotNull] TextBoxBase obj, bool value)
+        public static void SetIsEnabled([NotNull] TextBoxBase item, bool value)
         {
-            Contract.Requires(obj != null);
-            obj.SetValue(IsEnabledProperty, value);
+            item.SetValue(IsEnabledProperty, value);
         }
-
+#pragma warning disable CA1200 // Avoid using cref tags with a prefix
         /// <summary>
         /// Identifies the <see cref="P:tomenglertde.ResXManager.View.Tools.Spellcheck.IsEnabled"/> attached property
         /// </summary>
@@ -40,6 +37,7 @@
         /// </summary>
         /// </AttachedPropertyComments>
         [NotNull]
+#pragma warning restore CA1200 // Avoid using cref tags with a prefix
         public static readonly DependencyProperty IsEnabledProperty =
             DependencyProperty.RegisterAttached("IsEnabled", typeof(bool), typeof(Spellcheck), new FrameworkPropertyMetadata(false, IsEnabled_Changed));
 

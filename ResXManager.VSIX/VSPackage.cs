@@ -2,13 +2,11 @@
 {
     using System;
     using System.Collections.Generic;
-    using System.ComponentModel;
     using System.ComponentModel.Composition;
     using System.ComponentModel.Composition.Hosting;
     using System.ComponentModel.Design;
     using System.Diagnostics;
     using System.Diagnostics.CodeAnalysis;
-    using System.Diagnostics.Contracts;
     using System.Globalization;
     using System.IO;
     using System.Linq;
@@ -41,7 +39,7 @@
     /// </summary>
     // This attribute tells the PkgDef creation utility (CreatePkgDef.exe) that this class is a package.
     [SuppressMessage("Microsoft.Design", "CA1001:TypesThatOwnDisposableFieldsShouldBeDisposable", Justification = "Package already handles this.")]
-    [PackageRegistration(UseManagedResourcesOnly = true)]
+    [PackageRegistration(UseManagedResourcesOnly = true,  AllowsBackgroundLoading = true)]
     // This attribute is used to register the informations needed to show the this package in the Help/About dialog of Visual Studio.
     [InstalledProductRegistration(@"#110", @"#112", Product.Version, IconResourceID = 400)]
     // This attribute is needed to let the shell know that this package exposes some menus.
@@ -49,8 +47,8 @@
     // This attribute registers a tool window exposed by this package.
     [ProvideToolWindow(typeof(MyToolWindow))]
     [Guid(GuidList.guidResXManager_VSIXPkgString)]
-    [ProvideAutoLoad(UIContextGuids.SolutionExists)]
-    public sealed class VSPackage : Package
+    [ProvideAutoLoad(UIContextGuids.SolutionExists, PackageAutoLoadFlags.BackgroundLoad)]
+    public sealed class VSPackage : AsyncPackage
     {
         [NotNull]
         private readonly CustomToolRunner _customToolRunner = new CustomToolRunner();
@@ -86,8 +84,6 @@
         {
             get
             {
-                Contract.Ensures(Contract.Result<VSPackage>() != null);
-
                 if (_instance == null)
                     throw new InvalidOperationException("Package is the entry point and is the first class to be created.");
 
@@ -100,8 +96,6 @@
         {
             get
             {
-                Contract.Ensures(Contract.Result<ICompositionHost>() != null);
-
                 var stopwatch = Stopwatch.StartNew();
 
                 _compositionHostLoaded.WaitOne();
@@ -124,29 +118,24 @@
         /// Initialization of the package; this method is called right after the package is sited, so this is the place
         /// where you can put all the initialization code that rely on services provided by VisualStudio.
         /// </summary>
-        protected override void Initialize()
+        protected override async System.Threading.Tasks.Task InitializeAsync(CancellationToken cancellationToken, [NotNull] IProgress<ServiceProgressData> progress)
         {
-            base.Initialize();
+            await base.InitializeAsync(cancellationToken, progress).ConfigureAwait(false);
 
-            try
-            {
-                // Workaround for the UWP Designer bug in VS2017. Should be fixed in the next release after 15.8.1
-                DesignerProperties.IsInDesignModeProperty.OverrideMetadata(typeof(System.Windows.Interactivity.BehaviorCollection), new FrameworkPropertyMetadata(false));
-                DesignerProperties.IsInDesignModeProperty.OverrideMetadata(typeof(System.Windows.Interactivity.TriggerCollection), new FrameworkPropertyMetadata(false));
-            }
-            catch
-            {
-                // if that fails, there is nothing we can do about it...
-            }
+            var loaderMessages = await System.Threading.Tasks.Task.Run(FillCatalog, cancellationToken).ConfigureAwait(false);
 
-            var dispatcher = Dispatcher.CurrentDispatcher;
+            var menuCommandService = await GetServiceAsync(typeof(IMenuCommandService)).ConfigureAwait(false);
 
-            ThreadPool.QueueUserWorkItem(_ => FillCatalog(dispatcher));
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            ShowLoaderMessages(loaderMessages);
+
+            ErrorProvider.Register(_compositionHost.Container);
 
             ConnectEvents();
 
             // Add our command handlers for menu (commands must exist in the .vsct file)
-            if (!(GetService(typeof(IMenuCommandService)) is IMenuCommandService mcs))
+            if (!(menuCommandService is IMenuCommandService mcs))
                 return;
 
             // Create the command for the menu item.
@@ -167,30 +156,34 @@
             CompositionHost.Dispose();
         }
 
-        private void ShowLoaderMessages([NotNull, ItemNotNull] IList<string> errors, [NotNull, ItemNotNull] IList<string> messages)
+        private void ShowLoaderMessages([NotNull] LoaderMessages messages)
         {
+            if (!messages.Errors.Any())
+            {
+                return;
+            }
+
             try
             {
-                foreach (var error in errors)
+                foreach (var error in messages.Errors)
                 {
                     Tracer.TraceError(error);
                 }
-                foreach (var message in messages)
+                foreach (var message in messages.Messages)
                 {
                     Tracer.WriteLine(message);
                 }
             }
             catch
             {
-                MessageBox.Show("Loader errors:\n" + string.Join("\n", errors));
+                MessageBox.Show("Loader errors:\n" + string.Join("\n", messages.Errors));
             }
         }
 
+        [NotNull]
         [SuppressMessage("Microsoft.Reliability", "CA2001:AvoidCallingProblematicMethods", MessageId = "System.Reflection.Assembly.LoadFrom")]
-        private void FillCatalog([NotNull] Dispatcher dispatcher)
+        private LoaderMessages FillCatalog()
         {
-            Contract.Requires(dispatcher != null);
-
             var compositionContainer = _compositionHost.Container;
 
             compositionContainer.ComposeExportedValue(nameof(VSPackage), (IServiceProvider)this);
@@ -199,9 +192,8 @@
             var thisAssembly = GetType().Assembly;
 
             var path = Path.GetDirectoryName(thisAssembly.Location);
-            Contract.Assume(!string.IsNullOrEmpty(path));
 
-            var messages = new List<string>();
+            var messages = new LoaderMessages();
 
             //var allLocalAssemblyFileNames = Directory.EnumerateFiles(path, @"*.dll");
             //var allLocalAssemblyNames = new HashSet<string>(allLocalAssemblyFileNames.Select(Path.GetFileNameWithoutExtension));
@@ -214,34 +206,28 @@
             //    .Select(assembly => string.Format(CultureInfo.CurrentCulture, "Found assembly '{0}' already loaded from {1}.", assembly.FullName, assembly.CodeBase))
             //    .ToList();
 
-            var errors = new List<string>();
-
+            // ReSharper disable once AssignNullToNotNullAttribute
             foreach (var file in Directory.EnumerateFiles(path, @"ResXManager.*.dll"))
             {
-                Contract.Assume(!string.IsNullOrEmpty(file));
-
                 try
                 {
                     var assembly = Assembly.LoadFrom(file);
-                    messages.Add(string.Format(CultureInfo.CurrentCulture, "Loaded assembly '{0}' from {1}.", assembly.FullName, assembly.CodeBase));
+                    messages.Messages.Add(string.Format(CultureInfo.CurrentCulture, "Loaded assembly '{0}' from {1}.", assembly.FullName, assembly.CodeBase));
                     _compositionHost.AddCatalog(new AssemblyCatalog(assembly));
                 }
                 catch (ReflectionTypeLoadException ex)
                 {
-                    // ReSharper disable once AssignNullToNotNullAttribute
-                    // ReSharper disable once PossibleNullReferenceException
-                    errors.Add("Assembly: " + Path.GetFileName(file) + " => " + string.Join("\n", ex.LoaderExceptions.Select(l => l.Message + ": " + (l.InnerException?.Message ?? string.Empty))));
+                    messages.Errors.Add("Assembly: " + Path.GetFileName(file) + " => " + string.Join("\n", ex.LoaderExceptions.Select(l => l.Message + ": " + (l.InnerException?.Message ?? string.Empty))));
                 }
                 catch (Exception ex)
                 {
-                    errors.Add("Assembly: " + Path.GetFileName(file) + " => " + ex.Message);
+                    messages.Errors.Add("Assembly: " + Path.GetFileName(file) + " => " + ex.Message);
                 }
             }
 
             _compositionHostLoaded.Set();
 
-            dispatcher.BeginInvoke(() => ShowLoaderMessages(errors, messages));
-            dispatcher.BeginInvoke(() => ErrorProvider.Register(compositionContainer));
+            return messages;
         }
 
         [NotNull]
@@ -249,15 +235,11 @@
         {
             get
             {
-                Contract.Ensures(Contract.Result<EnvDTE80.DTE2>() != null);
-
                 var dte = (EnvDTE80.DTE2)GetService(typeof(SDTE));
-                Contract.Assume(dte != null);
                 return dte;
             }
         }
 
-        [ContractVerification(false)]
         [SuppressMessage("ReSharper", "PossibleNullReferenceException")]
         private void ConnectEvents()
         {
@@ -294,14 +276,16 @@
             _documentEvents = events.DocumentEvents;
             _documentEvents.DocumentOpened += DocumentEvents_DocumentOpened;
             _documentEvents.DocumentSaved += DocumentEvents_DocumentSaved;
+
+            if (Dte.Solution != null)
+            {
+                Solution_Opened();
+            }
         }
 
         [NotNull]
         private static OleMenuCommand CreateMenuCommand([NotNull] IMenuCommandService mcs, int cmdId, [CanBeNull] EventHandler invokeHandler)
         {
-            Contract.Requires(mcs != null);
-            Contract.Ensures(Contract.Result<OleMenuCommand>() != null);
-
             var menuCommandId = new CommandID(GuidList.guidResXManager_VSIXCmdSet, cmdId);
             var menuCommand = new OleMenuCommand(invokeHandler, menuCommandId);
             mcs.AddCommand(menuCommand);
@@ -350,16 +334,18 @@
 
         private void ShowSelectedResourceFiles([CanBeNull] object sender, [CanBeNull] EventArgs e)
         {
-            var selectedResourceEntites = GetSelectedResourceEntites()?.Distinct().ToArray();
-            if (selectedResourceEntites == null)
+            var selectedResourceEntities = GetSelectedResourceEntities()?.Distinct().ToArray();
+            if (selectedResourceEntities == null)
                 return;
 
             // if we open the window the first time, make sure it does not select all entities by default.
-            Settings.Default.AreAllFilesSelected = false;
+            var settings = Settings.Default;
+            settings.AreAllFilesSelected = false;
+            settings.ResourceFilter = string.Empty;
 
             var selectedEntities = CompositionHost.GetExportedValue<ResourceViewModel>().SelectedEntities;
             selectedEntities.Clear();
-            selectedEntities.AddRange(selectedResourceEntites);
+            selectedEntities.AddRange(selectedResourceEntities);
 
             ShowToolWindow();
         }
@@ -370,22 +356,21 @@
                 return;
 
             menuCommand.Text = Resources.OpenInResXManager;
-
-            menuCommand.Visible = GetSelectedResourceEntites() != null;
+            menuCommand.Visible = GetSelectedResourceEntities() != null;
         }
 
         [CanBeNull, ItemNotNull]
-        private IEnumerable<ResourceEntity> GetSelectedResourceEntites()
+        private IEnumerable<ResourceEntity> GetSelectedResourceEntities()
         {
             var monitorSelection = GetGlobalService(typeof(SVsShellMonitorSelection)) as IVsMonitorSelection;
-            Contract.Assume(monitorSelection != null);
 
+            // ReSharper disable once AssignNullToNotNullAttribute
             var selection = monitorSelection.GetSelectedProjectItems();
 
             var entities = selection
                 .Select(item => item.GetMkDocument())
                 .Where(file => !string.IsNullOrEmpty(file))
-                .SelectMany(GetSelectedResourceEntites)
+                .SelectMany(GetSelectedResourceEntities)
                 .ToArray();
 
             return (entities.Length > 0) && (entities.Length == selection.Count) ? entities : null;
@@ -393,9 +378,8 @@
 
         [NotNull]
         [ItemNotNull]
-        private IEnumerable<ResourceEntity> GetSelectedResourceEntites([CanBeNull] string fileName)
+        private IEnumerable<ResourceEntity> GetSelectedResourceEntities([CanBeNull] string fileName)
         {
-            Contract.Ensures(Contract.Result<IEnumerable<ResourceEntity>>() != null);
             if (string.IsNullOrEmpty(fileName))
                 return Enumerable.Empty<ResourceEntity>();
 
@@ -408,17 +392,13 @@
 
         private static bool ContainsChildOfWinFormsDesignerItem([NotNull] ResourceEntity entity, [CanBeNull] string fileName)
         {
-            Contract.Requires(entity != null);
-
             return entity.Languages.Select(lang => lang.ProjectFile)
                 .OfType<DteProjectFile>()
-                .Any(projectFile => string.Equals(projectFile.ParentItem?.TryGetFileName(), fileName) && projectFile.IsWinFormsDesignerResource);
+                .Any(projectFile => string.Equals(projectFile.ParentItem?.TryGetFileName(), fileName, StringComparison.OrdinalIgnoreCase) && projectFile.IsWinFormsDesignerResource);
         }
 
         private static bool ContainsFile([NotNull] ResourceEntity entity, [CanBeNull] string fileName)
         {
-            Contract.Requires(entity != null);
-
             return entity.Languages.Any(lang => lang.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase));
         }
 
@@ -428,7 +408,6 @@
             if (entry == null)
                 return;
 
-            // ReSharper disable once PossibleNullReferenceException
             if (!Properties.Settings.Default.MoveToResourceOpenInResXManager)
                 return;
 
@@ -491,8 +470,6 @@
 
         private void DocumentEvents_DocumentSaved([NotNull] EnvDTE.Document document)
         {
-            Contract.Requires(document != null);
-
             //using (PerformanceTracer.Start("DTE event: Document saved"))
             {
                 if (!AffectsResourceFile(document))
@@ -507,7 +484,6 @@
                 // extract some localization information.
                 // => find the resource entity that contains the document and run the custom tool on the neutral project file.
 
-                // ReSharper disable once PossibleNullReferenceException
                 bool Predicate(ResourceEntity e) => e.Languages.Select(lang => lang.ProjectFile)
                     .OfType<DteProjectFile>()
                     .Any(projectFile => projectFile.ProjectItems.Any(p => p.Document == document));
@@ -540,8 +516,6 @@
 
         private static bool AffectsResourceFile([CanBeNull] EnvDTE.Document document)
         {
-            Contract.Ensures((Contract.Result<bool>() == false) || (document != null));
-
             if (document == null)
                 return false;
 
@@ -565,14 +539,12 @@
             CompositionHost.GetExportedValue<ResourceViewModel>().Reload();
         }
 
-        [ContractInvariantMethod]
-        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Required for code contracts.")]
-        [Conditional("CONTRACTS_FULL")]
-        private void ObjectInvariant()
+        private class LoaderMessages
         {
-            Contract.Invariant(_customToolRunner != null);
-            Contract.Invariant(_compositionHost != null);
-            Contract.Invariant(_compositionHostLoaded != null);
+            [NotNull, ItemNotNull]
+            public IList<string> Messages { get; } = new List<string>();
+            [NotNull, ItemNotNull]
+            public IList<string> Errors { get; } = new List<string>();
         }
     }
 }

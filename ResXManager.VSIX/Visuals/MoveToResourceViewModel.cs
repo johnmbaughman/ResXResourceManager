@@ -110,7 +110,7 @@
             if (ReuseExisiting)
                 return null;
 
-            if (!string.Equals(propertyName, nameof(Key)))
+            if (!string.Equals(propertyName, nameof(Key), StringComparison.Ordinal))
                 return null;
 
             var key = Key;
@@ -235,8 +235,10 @@
             Update();
         }
 
-        string IDataErrorInfo.this[string columnName] => GetKeyErrors(columnName);
+        [CanBeNull]
+        string IDataErrorInfo.this[[CanBeNull] string columnName] => GetKeyErrors(columnName);
 
+        [CanBeNull]
         string IDataErrorInfo.Error => null;
     }
 

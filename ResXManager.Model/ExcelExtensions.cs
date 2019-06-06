@@ -91,6 +91,7 @@
             {
                 workbookPart
                     .AddNewPart<WorksheetPart>(item.Id)
+                    // ReSharper disable once AssignNullToNotNullAttribute
                     .Worksheet = new Worksheet()
                         .AppendItem(item.GetDataRows(scope).Aggregate(new SheetData(), dataAppender.AppendRow))
                         .Protect();
@@ -112,15 +113,23 @@
 
             workbookPart.Workbook = new Workbook().AppendItem(new Sheets(sheet));
 
+            var sheetData = rows.Aggregate(new SheetData(), dataAppender.AppendRow);
+            if (sheetData.ChildElements.Count > 1048576)
+            {
+                throw new ImportException("The Excel limit is 1048576 rows per sheet. The data can't be exported");
+            }
+
             workbookPart
                 .AddNewPart<WorksheetPart>(sheet.Id)
+                // ReSharper disable once AssignNullToNotNullAttribute
                 .Worksheet = new Worksheet()
-                    .AppendItem(rows.Aggregate(new SheetData(), dataAppender.AppendRow))
+                    .AppendItem(sheetData)
                     .Protect();
         }
 
         private static Worksheet Protect(this Worksheet worksheet)
         {
+            // ReSharper disable once AssignNullToNotNullAttribute
             return worksheet.AppendItem(new SheetProtection { Sheet = true, Objects = true, Scenarios = true, FormatColumns = false, FormatRows = false, Sort = false, AutoFilter = false });
         }
 
@@ -143,7 +152,7 @@
 
                 var firstSheet = sheets.OfType<Sheet>().FirstOrDefault();
                 if (firstSheet == null)
-                    return new EntryChange[0];
+                    return Array.Empty<EntryChange>();
 
                 var firstRow = firstSheet.GetRows(workbookPart).FirstOrDefault();
 
@@ -166,10 +175,9 @@
         [NotNull, ItemNotNull]
         private static IEnumerable<EntryChange> ImportSingleSheet([NotNull] ResourceManager resourceManager, [CanBeNull, ItemNotNull] IList<IList<string>> data)
         {
-            if (data == null)
+            var firstRow = data?.FirstOrDefault();
+            if (firstRow == null)
                 yield break;
-
-            var firstRow = data.FirstOrDefault();
 
             var headerRow = (IList<string>)firstRow.Skip(2).ToArray();
 
@@ -291,6 +299,11 @@
             [ItemNotNull]
             private Cell CreateCell([CanBeNull] string text, int row, int column)
             {
+                if (text?.Length > 32767)
+                {
+                    throw new ImportException("The Excel limit is 32767 characters per cell. This text can't be exported: " + text.Substring(0, 50) + "...");
+                }
+
                 var cell = new Cell
                 {
                     DataType = CellValues.InlineString,
@@ -369,10 +382,9 @@
 
         }
 
+        [CanBeNull]
         private static string GetTextFromTextElement([NotNull] OpenXmlElement cell)
         {
-            // ReSharper disable AssignNullToNotNullAttribute
-            // ReSharper disable PossibleNullReferenceException
             return cell.ChildElements
                        .OfType<Text>()
                        .Select(item => item.Text)
@@ -385,8 +397,6 @@
                        .OfType<Run>()
                        .Select(item => item.Text.Text)
                        .Aggregate(default(string), (a, b) => a + b);
-            // ReSharper restore AssignNullToNotNullAttribute
-            // ReSharper restore PossibleNullReferenceException
         }
 
         [NotNull]
@@ -434,10 +444,10 @@
         private static IEnumerable<string> GetLanguageDataColumns([NotNull] this ResourceTableEntry entry, [NotNull] CultureKey language, [CanBeNull] IResourceScope scope)
         {
             if ((scope == null) || scope.Comments.Contains(language))
-                yield return entry.Comments.GetValue(language);
+                yield return entry.Comments.GetValue(language) ?? string.Empty;
 
             if ((scope == null) || scope.Languages.Contains(language))
-                yield return entry.Values.GetValue(language);
+                yield return entry.Values.GetValue(language) ?? string.Empty;
         }
 
         /// <summary>

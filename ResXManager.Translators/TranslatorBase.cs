@@ -2,7 +2,6 @@ namespace tomenglertde.ResXManager.Translators
 {
     using System;
     using System.Collections.Generic;
-    using System.Diagnostics.Contracts;
     using System.Net;
     using System.Runtime.Serialization;
     using System.Text.RegularExpressions;
@@ -19,37 +18,22 @@ namespace tomenglertde.ResXManager.Translators
         [NotNull]
         private static readonly Regex _removeKeyboardShortcutIndicatorsRegex = new Regex(@"[&_](?=[\w\d])", RegexOptions.Compiled);
 
-        [CanBeNull]
-        protected static readonly IWebProxy WebProxy;
-
-        static TranslatorBase()
-        {
-            try
-            {
-                WebProxy = WebRequest.DefaultWebProxy ?? new WebProxy();
-                WebProxy.Credentials = CredentialCache.DefaultNetworkCredentials;
-            }
-            catch
-            {
-                // ignored
-            }
-        }
+        [NotNull]
+        protected static readonly IWebProxy WebProxy = TryGetDefaultProxy();
 
         protected TranslatorBase([NotNull] string id, [NotNull] string displayName, [CanBeNull] Uri uri, [CanBeNull][ItemNotNull] IList<ICredentialItem> credentials)
         {
-            Contract.Requires(id != null);
-            Contract.Requires(displayName != null);
-
             Id = id;
             DisplayName = displayName;
             Uri = uri;
-            Credentials = credentials ?? new ICredentialItem[0];
+            Credentials = credentials ?? Array.Empty<ICredentialItem>();
         }
 
         public string Id { get; }
 
         public string DisplayName { get; }
 
+        [CanBeNull]
         public Uri Uri { get; }
 
         [DataMember]
@@ -66,6 +50,20 @@ namespace tomenglertde.ResXManager.Translators
         protected static string RemoveKeyboardShortcutIndicators([NotNull] string value)
         {
             return _removeKeyboardShortcutIndicatorsRegex.Replace(value, string.Empty);
+        }
+
+        private static IWebProxy TryGetDefaultProxy()
+        {
+            try
+            {
+                var webProxy = WebRequest.DefaultWebProxy ?? new WebProxy();
+                webProxy.Credentials = CredentialCache.DefaultNetworkCredentials;
+                return webProxy;
+            }
+            catch
+            {
+                return new WebProxy();
+            }
         }
     }
 }

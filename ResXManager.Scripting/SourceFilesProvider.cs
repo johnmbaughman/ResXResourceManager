@@ -1,5 +1,6 @@
 namespace ResXManager.Scripting
 {
+    using System;
     using System.Collections.Generic;
     using System.ComponentModel.Composition;
     using System.IO;
@@ -27,7 +28,7 @@ namespace ResXManager.Scripting
             {
                 var folder = Folder;
                 if (string.IsNullOrEmpty(folder))
-                    return new ProjectFile[0];
+                    return Array.Empty<ProjectFile>();
 
                 _fileExclusionFilter = ExclusionFilter.TryCreateRegex();
 

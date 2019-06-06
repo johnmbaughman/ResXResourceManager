@@ -3,9 +3,7 @@
     using System;
     using System.Collections.Generic;
     using System.ComponentModel.Composition;
-    using System.Diagnostics;
     using System.Diagnostics.CodeAnalysis;
-    using System.Diagnostics.Contracts;
     using System.Globalization;
     using System.IO;
     using System.Net;
@@ -14,8 +12,6 @@
     using System.Web;
 
     using JetBrains.Annotations;
-
-    using Newtonsoft.Json;
 
     using tomenglertde.ResXManager.Infrastructure;
 
@@ -36,29 +32,19 @@
         [ItemNotNull]
         private static IList<ICredentialItem> GetCredentials()
         {
-            Contract.Ensures(Contract.Result<IList<ICredentialItem>>() != null);
-
             return new ICredentialItem[] { new CredentialItem("Key", "Key") };
         }
 
         [DataMember(Name = "Key")]
-        [ContractVerification(false)]
         [CanBeNull]
         public string SerializedKey
         {
-            get
-            {
-                return SaveCredentials ? Credentials[0]?.Value : null;
-            }
-            set
-            {
-                Credentials[0].Value = value;
-            }
+            get => SaveCredentials ? Credentials[0].Value : null;
+            set => Credentials[0].Value = value;
         }
 
-        [ContractVerification(false)]
         [CanBeNull]
-        private string Key => Credentials[0]?.Value;
+        private string Key => Credentials[0].Value;
 
         public override void Translate(ITranslationSession translationSession)
         {
@@ -68,7 +54,6 @@
                     break;
 
                 var translationItem = item;
-                Contract.Assume(translationItem != null);
 
                 try
                 {
@@ -77,7 +62,7 @@
 
                     translationSession.Dispatcher.BeginInvoke(() =>
                     {
-                        if (result.Matches != null)
+                        if (result?.Matches != null)
                         {
                             foreach (var match in result.Matches)
                             {
@@ -90,7 +75,7 @@
                         }
                         else
                         {
-                            var translation = result.ResponseData.TranslatedText;
+                            var translation = result?.ResponseData?.TranslatedText;
                             if (!string.IsNullOrEmpty(translation))
                                 translationItem.Results.Add(new TranslationMatch(this, translation, result.ResponseData.Match.GetValueOrDefault()));
                         }
@@ -107,10 +92,6 @@
         [CanBeNull]
         private static Response TranslateText([NotNull] string input, [CanBeNull] string key, [NotNull] CultureInfo sourceLanguage, [NotNull] CultureInfo targetLanguage)
         {
-            Contract.Requires(input != null);
-            Contract.Requires(sourceLanguage != null);
-            Contract.Requires(targetLanguage != null);
-
             var rawInput = RemoveKeyboardShortcutIndicators(input);
 
             var url = string.Format(CultureInfo.InvariantCulture,
@@ -121,13 +102,14 @@
             if (!string.IsNullOrEmpty(key))
                 url += string.Format(CultureInfo.InvariantCulture, "&key={0}", HttpUtility.UrlEncode(key));
 
-            var webRequest = (HttpWebRequest)WebRequest.Create(url);
+            var webRequest = (HttpWebRequest)WebRequest.Create(new Uri(url));
             webRequest.Proxy = WebProxy;
 
             using (var webResponse = webRequest.GetResponse())
             {
                 var responseStream = webResponse.GetResponseStream();
-                Contract.Assume(responseStream != null);
+                if (responseStream == null)
+                    return null;
 
                 using (var reader = new StreamReader(responseStream, Encoding.UTF8))
                 {
@@ -206,13 +188,6 @@
             }
 
 
-        }
-
-        [ContractInvariantMethod]
-        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Required for code contracts.")]
-        [Conditional("CONTRACTS_FULL")]
-        private void ObjectInvariant()
-        {
         }
     }
 }
